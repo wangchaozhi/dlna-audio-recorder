@@ -15,6 +15,7 @@ import (
 
 	"github.com/wangchaozhi/dlna-audio-recorder/internal/config"
 	"github.com/wangchaozhi/dlna-audio-recorder/internal/dlna"
+	"github.com/wangchaozhi/dlna-audio-recorder/internal/playback"
 	"github.com/wangchaozhi/dlna-audio-recorder/internal/recorder"
 )
 
@@ -28,7 +29,8 @@ func main() {
 	sum := sha1.Sum([]byte("dlna-audio-recorder:" + cfg.AdvertiseIP)); h := hex.EncodeToString(sum[:])
 	uuid := fmt.Sprintf("%s-%s-%s-%s-%s", h[:8], h[8:12], h[12:16], h[16:20], h[20:32])
 	rec := recorder.New(recorder.Config{OutputDir: cfg.OutputDir, TempDir: cfg.TempDir, FFMpeg: cfg.FFMpeg, UserAgent: cfg.UserAgent, Grace: cfg.SegmentGrace, HTTPTimeout: cfg.HTTPTimeout, KeepRaw: cfg.KeepRaw}, log)
-	ds := &dlna.Server{Name: cfg.DeviceName, UUID: uuid, BaseURL: baseURL, Recorder: rec, Log: log}
+	dispatcher := playback.NewDispatcher(rec, log)
+	ds := &dlna.Server{Name: cfg.DeviceName, UUID: uuid, BaseURL: baseURL, Playback: dispatcher, Log: log}
 	httpSrv := &http.Server{Addr: cfg.ListenAddr, Handler: ds.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM); defer cancel()
 	go func() { log.Info("HTTP server", "listen", cfg.ListenAddr, "device", baseURL+"/device.xml"); if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed { log.Error("http server", "err", err); cancel() } }()
