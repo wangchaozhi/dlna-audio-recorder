@@ -1,0 +1,4 @@
+package metadata
+import "testing"
+func TestParseDIDL(t *testing.T){raw:=`<DIDL-Lite xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/"><item><dc:title>Song</dc:title><upnp:artist>Artist</upnp:artist><upnp:album>Album</upnp:album><res duration="00:03:15.500">http://example/audio.mp3</res></item></DIDL-Lite>`;got:=Parse("",raw);if got.Title!="Song"||got.Artist!="Artist"||got.Album!="Album"{t.Fatalf("metadata mismatch: %#v",got)};if got.URI!="http://example/audio.mp3"{t.Fatalf("uri=%q",got.URI)};if got.Duration.Milliseconds()!=195500{t.Fatalf("duration=%v",got.Duration)}}
+func TestParseEscapedDIDL(t *testing.T){raw:=`&lt;DIDL-Lite xmlns:dc=&quot;http://purl.org/dc/elements/1.1/&quot;&gt;&lt;item&gt;&lt;dc:title&gt;A &amp;amp; B&lt;/dc:title&gt;&lt;/item&gt;&lt;/DIDL-Lite&gt;`;got:=Parse("http://x",raw);if got.Title!="A & B"{t.Fatalf("title=%q",got.Title)}}
