@@ -71,6 +71,16 @@ docker run --rm --network host \
 
 This is deliberately control-plane driven rather than silence detection; live mixes and gapless albums often have no silence at boundaries.
 
+## QQ Music / QPlay experimental support
+
+The renderer now advertises Tencent's QPlay service (`urn:schemas-tencent-com:service:QPlay:1`) in addition to standard DLNA services.
+
+QPlay queue mode differs from ordinary DLNA: QQ Music can first call `SetAVTransportURI` with a virtual URI such as `qplay://<QueueID>` and then send the real tracks through `InsertTracks` or `SetTracksInfo`. The recorder treats `qplay://` as a queue identifier instead of trying to fetch it as media.
+
+Implemented actions currently include `InsertTracks`, `SetTracksInfo`, `RemoveTracks`, `GetTracksInfo`, `GetTracksCount`, `GetMaxTracks`, and a diagnostic `QPlayAuth` response. QPlay activity logs redact queue identifiers and log metadata sizes rather than dumping full metadata or media URLs.
+
+This support is experimental until validated against a current real QQ Music client. QPlay 2 authentication/certification behavior may require additional compatibility work.
+
 ## Supported input
 
 The recorder declares common HTTP audio protocols (MP3, AAC, MP4/M4A, FLAC and HLS). Actual decoding support is determined by your FFmpeg build. Plain HTTP(S) media URLs work best.
