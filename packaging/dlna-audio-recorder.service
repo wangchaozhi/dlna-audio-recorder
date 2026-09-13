@@ -1,0 +1,15 @@
+[Unit]
+Description=DLNA Audio Recorder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dlna-recorder -listen :1400 -output /var/lib/dlna-audio-recorder/recordings
+Restart=on-failure
+RestartSec=3
+User=dlna-recorder
+Group=dlna-recorder
+
+[Install]
+WantedBy=multi-user.target
