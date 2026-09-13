@@ -18,7 +18,7 @@ No program can guarantee a perfect split when the sender exposes one unchanging 
 
 ## Requirements
 
-- Go 1.23+
+- Go 1.23+ (building from source)
 - FFmpeg 6/7+ available in `PATH`
 - Sender and recorder on the same LAN; multicast UDP 1900 and TCP 1400 must be reachable
 
@@ -40,14 +40,14 @@ If auto-detection chooses the wrong network interface:
 ## Useful flags
 
 ```text
--listen :1400
--advertise-ip 192.168.1.20
--name "DLNA Audio Recorder"
--output recordings
--temp recordings/.tmp
--ffmpeg ffmpeg
--segment-grace 1.5s
--keep-raw
+-listen :1400                 HTTP/SOAP listener
+-advertise-ip 192.168.1.20    LAN address exposed through SSDP
+-name "DLNA Audio Recorder"   renderer name shown to senders
+-output recordings            completed files
+-temp recordings/.tmp         in-progress captures
+-ffmpeg ffmpeg                FFmpeg executable/path
+-segment-grace 1.5s           overlap retained around track boundaries
+-keep-raw                     keep .capture files after successful conversion
 ```
 
 ## Docker
@@ -61,29 +61,50 @@ docker run --rm --network host \
   dlna-audio-recorder -advertise-ip 192.168.1.20
 ```
 
+Docker Desktop networking on macOS/Windows may not expose SSDP multicast the same way as native host networking; running the native binary is generally simpler there.
+
+## Architecture
+
+```text
+Phone / DLNA controller
+        |
+        | SSDP + SOAP AVTransport
+        v
++---------------------------+
+| DLNA Audio Recorder       |
+|                           |
+| MediaRenderer             |
+|   -> track state machine  |
+|   -> DIDL-Lite metadata   |
+|                           |
+| StreamSession (long-lived)|------ HTTP GET ------> media source
+|   -> current segment      |
+|   -> tail overlap buffer  |
+|   -> segment rotation     |
++-------------+-------------+
+              |
+              v
+        raw .capture
+              |
+           FFmpeg
+              |
+              v
+      Artist - Title.m4a
+```
+
 ## Track-boundary behavior
 
 1. A new URI starts a new `StreamSession`.
 2. A metadata change for the **same URI** rotates the segment but keeps the upstream session alive.
 3. A different URI cancels the previous fetch, finalizes it, and starts the next stream.
-4. `SetNextAVTransportURI` is stored as a hint, not treated as an immediate boundary.
+4. `SetNextAVTransportURI` is stored as a hint, not treated as an immediate boundary, because many controllers announce the next song well before it starts.
 5. `Stop` closes and finalizes the current segment.
 
 This is deliberately control-plane driven rather than silence detection; live mixes and gapless albums often have no silence at boundaries.
 
-## QQ Music / QPlay experimental support
-
-The renderer now advertises Tencent's QPlay service (`urn:schemas-tencent-com:service:QPlay:1`) in addition to standard DLNA services.
-
-QPlay queue mode differs from ordinary DLNA: QQ Music can first call `SetAVTransportURI` with a virtual URI such as `qplay://<QueueID>` and then send the real tracks through `InsertTracks` or `SetTracksInfo`. The recorder treats `qplay://` as a queue identifier instead of trying to fetch it as media.
-
-Implemented actions currently include `InsertTracks`, `SetTracksInfo`, `RemoveTracks`, `GetTracksInfo`, `GetTracksCount`, `GetMaxTracks`, and a diagnostic `QPlayAuth` response. QPlay activity logs redact queue identifiers and log metadata sizes rather than dumping full metadata or media URLs.
-
-This support is experimental until validated against a current real QQ Music client. QPlay 2 authentication/certification behavior may require additional compatibility work.
-
 ## Supported input
 
-The recorder declares common HTTP audio protocols (MP3, AAC, MP4/M4A, FLAC and HLS). Actual decoding support is determined by your FFmpeg build. Plain HTTP(S) media URLs work best.
+The recorder declares common HTTP audio protocols (MP3, AAC, MP4/M4A, FLAC and HLS). Actual decoding support is determined by your FFmpeg build. Plain HTTP(S) media URLs work best. Authentication is supported when credentials/tokens are embedded in or otherwise accepted by the media URL supplied by the controller.
 
 DRM, encrypted application-private transports, and sources that require a separate proprietary playback stack are not bypassed.
 
@@ -102,6 +123,40 @@ CI runs tests with the race detector, `go vet`, and a clean build.
 - Implements the renderer/control subset required for recording; it is not intended to be a full speaker/audio-output renderer.
 - Event subscription returns valid subscription responses but does not yet push `LastChange` callbacks to subscribers.
 - Gapless boundaries are protected by overlap and FFmpeg recovery, but sample-exact splitting requires decoded PCM timing and is a future enhancement.
-- A dedicated HLS segment fetcher would improve compatibility.
+- HLS streams are accepted by FFmpeg after capture only when the sender gives a fetchable stream form; a dedicated HLS segment fetcher would improve compatibility.
 
 Contributions and device/app compatibility reports are welcome.
+
+## QQ Music / QPlay experimental support
+
+The renderer now advertises Tencent's QPlay service (`urn:schemas-tencent-com:service:QPlay:1`) in addition to standard DLNA services.
+
+QPlay queue mode differs from ordinary DLNA: QQ Music can first call `SetAVTransportURI` with a virtual URI such as `qplay://<QueueID>` and then send the real tracks through `InsertTracks` or `SetTracksInfo`. The recorder therefore treats `qplay://` as a queue identifier, not as a fetchable media URL.
+
+Implemented QPlay actions:
+
+- `InsertTracks`
+- `SetTracksInfo`
+- `RemoveTracks`
+- `GetTracksInfo`
+- `GetTracksCount`
+- `GetMaxTracks`
+- diagnostic `QPlayAuth` response
+
+QPlay SOAP activity is logged with queue identifiers redacted and only metadata byte counts, so a compatibility test can reveal which actions QQ Music uses without dumping account tokens or full media URLs into logs. Track metadata JSON is parsed defensively because device/controller implementations differ in field naming.
+
+This support is intentionally marked experimental until it is tested against a real current QQ Music client. QPlay 2 authentication and vendor certification behavior can vary by client/device and may require additional compatibility work.
+
+## Web dashboard
+
+Open the recorder base URL (for example `http://192.168.1.20:1400/`) to use the embedded, read-only dashboard. It is served from the same Go binary and does not require Node.js or a separate frontend deployment.
+
+The first dashboard version shows:
+
+- renderer/runtime status and uptime;
+- current DLNA/QPlay track and next-track hints;
+- a live protocol event feed over Server-Sent Events (SSE);
+- the latest finalized `.m4a` recordings with browser playback/download links;
+- redacted media origins only (scheme + host), so signed QQ Music media paths/query tokens are not exposed to the browser.
+
+The dashboard observes playback-domain events; the recorder core does not depend on the UI. This keeps future QPlay/device integrations independent from the control panel.
