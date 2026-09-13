@@ -1,0 +1,4 @@
+/bin/
+/recordings/
+*.capture
+.DS_Store
